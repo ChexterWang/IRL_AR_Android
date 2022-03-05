@@ -83,7 +83,7 @@ android:layout_height="match_parent"
         android:id="@+id/rb_owner"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Owner" />
+        android:text="Host" />
 
     <RadioButton
         android:id="@+id/rb_viewer"
@@ -114,7 +114,8 @@ android:layout_height="match_parent"
       android:text="@string/angle"
       app:layout_constraintBottom_toTopOf="@+id/record"
       app:layout_constraintEnd_toEndOf="parent"
-      app:layout_constraintStart_toStartOf="parent" />
+      app:layout_constraintStart_toStartOf="parent"
+      android:visibility="gone"/>
 
   <TextView
       android:id="@+id/mratio"
@@ -126,7 +127,8 @@ android:layout_height="match_parent"
       android:text="@string/ratio"
       app:layout_constraintBottom_toTopOf="@+id/cangle"
       app:layout_constraintEnd_toEndOf="parent"
-      app:layout_constraintStart_toStartOf="parent" />
+      app:layout_constraintStart_toStartOf="parent"
+      android:visibility="gone"/>
   <!--
    <LinearLayout
        android:layout_width="match_parent"

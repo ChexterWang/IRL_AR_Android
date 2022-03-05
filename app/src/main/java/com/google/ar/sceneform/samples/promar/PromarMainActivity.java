@@ -38,7 +38,9 @@ import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.support.annotation.RequiresApi;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Base64;
 import android.util.Log;
 import android.util.SizeF;
 import android.view.Display;
@@ -69,6 +71,9 @@ import com.google.ar.sceneform.samples.promar.env.Size;
 import com.google.ar.sceneform.samples.promar.tracking.MultiBoxTracker;
 import com.google.ar.sceneform.ux.TransformableNode;
 
+import org.java_websocket.handshake.ServerHandshake;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
@@ -80,6 +85,9 @@ import org.opencv.core.MatOfDMatch;
 import org.opencv.core.MatOfKeyPoint;
 import org.opencv.core.Rect;
 
+import java.io.ByteArrayOutputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -87,6 +95,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.java_websocket.client.WebSocketClient;
 
 import com.example.promar.imageprocessinglib.ImageProcessor;
 import com.example.promar.imageprocessinglib.ObjectDetector;
@@ -160,12 +169,19 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
 
     private byte[] luminanceCopy;
     private List<Recognition> recognitions;
-
+    private Boolean has_initialized=false;
     //    private Classifier detector;
     private BorderedText borderedText;
 
     static Boolean onRecord = false;
     static Boolean onRetrieve = false;
+    private WebSocketClient myWebSocketClient;
+    private Integer frame_no = 0;
+    private boolean send_vo = false;
+    private boolean viewer_vo = false;
+    private boolean get_viewer_position = false;
+    float view_x, view_y, view_z;
+    boolean need_relocalize = false;
 
 //    private final PlaneRenderer planeRenderer = new PlaneRenderer(new Renderer(new ));
 
@@ -186,6 +202,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
 
         setContentView(R.layout.activity_ux);
         arFragment = (MyArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
+        arFragment.getArSceneView().getPlaneRenderer().setVisible(false);
         arFragment.getPlaneDiscoveryController().hide();
         arFragment.getPlaneDiscoveryController().setInstructionView(null);
         imgView = findViewById(R.id.imgview);
@@ -199,7 +216,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
         Display display = this.getWindowManager().getDefaultDisplay();
         int stageWidth = display.getWidth();
         int stageHeight = display.getHeight();
-
+        conn();
         //ImageView imgview=findViewById(R.id.imgview);
 
         //imgview.setImageResource(R.drawable.ic_launcher);
@@ -332,6 +349,8 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                     runOnUiThread(()-> {
                         btn.setTag("Place VO");
                         btn.setText("Place VO");
+                        send_vo = true;
+                        Toast.makeText(PromarMainActivity.this, "set host", Toast.LENGTH_SHORT).show();
                         sbar.setVisibility(View.INVISIBLE);
                     });
 
@@ -346,9 +365,12 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                     String tag=(String)btn.getTag();
                     if(tag.equals("Retrieve")) {
 
-                        loadData();
+//                        loadData();
+
                         onRetrieve = true;
                         runOnUiThread(()-> {
+                            viewer_vo = true;
+                            Toast.makeText(PromarMainActivity.this, "viewer send", Toast.LENGTH_SHORT).show();
                             btn.setText("Clear");
                             btn.setTag("Clear");
                             //btn.setEnabled(false);
@@ -356,7 +378,9 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                     }
                     else{
                         onRetrieve=false;
+
                         runOnUiThread(()-> {
+
                             btn.setTag("Retrieve");
                             btn.setText("Retrieve");
                             andy.setParent(null);
@@ -452,6 +476,11 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
             Log.e(TAG, e.getMessage(), e);
         }
     }
+
+//    static {
+//        System.loadLibrary("native-lib");
+//    }
+//    private native float[] CVTest(long matAddr, long id, int[] update_ids, long[] update_poses_address);  //调用 c++代码
 
     void loadData() {
         if (rs==null) {
@@ -579,9 +608,267 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 });
     }
 
+    public void conn()
+    {
+        ///////////////////////////Web Socket ROS_Bridge
+        URI uri;
+        try {
+            uri = new URI("ws://192.168.50.74:9090/");
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        myWebSocketClient = new WebSocketClient(uri)  {
+            @Override
+            public void onOpen(ServerHandshake serverHandshake) {
+                Log.i("Websocket", "Opened");
+                myWebSocketClient.send("Hello from " + Build.MANUFACTURER + " " + Build.MODEL);
+            }
+
+            @Override
+            public void onMessage(String s) {
+                final String message = s;
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        String[] entries = message.split(":");
+                        String data = entries[3].substring(0, entries[3].length() - 6);
+                        String topic = entries[3].substring(2, 4);
+                        System.out.println("topic" + topic);
+                        System.out.println("msg" + message);
+                        data = data.substring(data.indexOf('"')+1, data.length() - 2);
+
+                        List<String> poselist = Arrays.asList(data.split(","));
+                        if(poselist.get(0).equals("host_set")){
+                            runOnUiThread(()->{
+                                Toast.makeText(getApplicationContext(), "server set done", Toast.LENGTH_SHORT).show();
+                            });
+                        }
+                        else if(poselist.get(0).equals("viewer_done")){
+                            view_x = Float.parseFloat(poselist.get(1));
+                            view_y = Float.parseFloat(poselist.get(2));
+                            view_z = Float.parseFloat(poselist.get(3));
+                            System.out.println("msg data" + data);
+                            System.out.println("msg x" + view_x);
+                            System.out.println("msg y" + view_y);
+                            System.out.println("msg z" + view_z);
+                            if(view_z>0.85 && view_z <=1.2f){
+                                view_z = 1.2f;
+                            }else if(view_z>1.2f && view_z<=1.3f){
+                                view_z = 1.4f;
+                            }else if(view_z>1.3f && view_z<=1.4f){
+                                view_z = 1.5f;
+                            }
+                            System.out.println("msg x final" + view_x);
+                            System.out.println("msg y final" + view_y);
+                            System.out.println("msg z final" + view_z);
+                            get_viewer_position = true;
+
+                        }else if(poselist.get(0).equals("initialize")){
+                            has_initialized = true;
+                            runOnUiThread(()->{
+                                Toast.makeText(getApplicationContext(), "SLAM initialize", Toast.LENGTH_SHORT).show();
+                            });
+
+                        }else if(poselist.get(0).equals("relocalize")) {
+                            need_relocalize = true;
+                            runOnUiThread(() -> {
+                                Toast.makeText(getApplicationContext(), "relocalize", Toast.LENGTH_SHORT).show();
+                            });
+                        }
+
+                        //Bounding box
+//                        if(rcv_server_data.is_processing == false && topic.equals("BB")) {
+//                            rcv_server_data.is_processing = true;
+//                            rcv_server_data.data = data;
+//                            rcv_server_data.parser();
+//                        }
+                        //Pose value
+//                        if(rcv_server_pose.is_processing == false && topic.equals("UP")){
+//                            rcv_server_pose.pose = data;
+//                            rcv_server_pose.parser();
+//                        }
+                    }
+                }).start();
+            }
+
+            @Override
+            public void onClose(int i, String s, boolean b) {
+                Log.i("Websocket", "Closed " + s);
+            }
+
+            @Override
+            public void onError(Exception e) {
+                Log.i("Websocket", "Error " + e.getMessage());
+            }
+        };
+        try{
+            myWebSocketClient.connect();
+        }catch (IllegalStateException e){
+            Log.i("websocket error", String.valueOf(e));
+        }
+
+        //////////////////////////////////////////////////////////
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
+
+    boolean has_subscribed = false;
+    void web_sock_send(final String encoded_img)
+    {
+        new Thread(new Runnable() {
+            @RequiresApi(api = Build.VERSION_CODES.KITKAT)
+            @Override
+            public void run() {
+                JSONObject obj = new JSONObject();
+                JSONObject obj1 = new JSONObject();
+                String data_header;
+                if(send_vo){
+                    data_header = frame_no.toString() + "_host_" + encoded_img;
+                    send_vo = false;
+                } else if(viewer_vo){
+                    data_header = frame_no.toString() + "_viewer_" + encoded_img;
+                    viewer_vo = false;
+                }
+                else{
+                    data_header = frame_no.toString() + "_F_" + encoded_img;
+                }
+
+                try{
+                    obj1.put("data", data_header);
+                    obj.put("op","publish");
+                    obj.put("topic","/chatter");
+                    obj.put("msg", obj1);
+                }
+                catch(JSONException e){
+                    Log.i("error sending", "gg");
+                }
+                String data = "";
+                String data1 = "";
+                String op1 = "advertise";
+                String topic1 = "/chatter";
+                String type1 = "std_msgs/String";
+                data = "{\"op\": \"" + op1 + "\"";
+                data += ",\"topic\":\"" + topic1 + "\"";
+                data += ",\"type\":\"" + type1 + "\"}";
+                //For handshaking
+                myWebSocketClient.send(data);
+
+
+                //For subscription pose
+//                if(!is_subscribe_pose) {
+//                    String op = "subscribe";
+//                    String id = "002";
+//                    String topic = "/pose_update";
+//                    String type = "std_msgs/String";
+//                    String subs = "";
+//                    subs = "{\"op\": \"" + op + "\"";
+//                    subs += ",\"id\":\"" + id + "\"";
+//                    subs += ",\"topic\":\"" + topic + "\"";
+//                    subs += ",\"type\":\"" + type + "\"}";
+//                    is_subscribe_pose = true;
+//                    myWebSocketClient.send(subs);
+//                }
+
+                //For subscription bounding box
+                if(!has_subscribed) {
+                    String op = "subscribe";
+                    String id = "001";
+                    String topic = "/IRL_SLAM";
+                    String type = "std_msgs/String";
+                    String subs = "";
+                    subs = "{\"op\": \"" + op + "\"";
+                    subs += ",\"id\":\"" + id + "\"";
+                    subs += ",\"topic\":\"" + topic + "\"";
+                    subs += ",\"type\":\"" + type + "\"}";
+                    has_subscribed = true;
+                    myWebSocketClient.send(subs);
+                }
+//
+//                //Bitmap data
+                myWebSocketClient.send(obj.toString());
+
+                frame_no++;
+//                try {
+////                    int port = 30001;
+////                    Log.v("m1y",String.valueOf(byteArray.length));
+////                    Log.v("m1y",host);
+//                    ////////////////////////////////
+//                    socket = new Socket(SLAM_config.host_ip, SLAM_config.port);
+//                    System.out.println("Keyframe detected!");
+//                    OutputStreamWriter out = new OutputStreamWriter(socket.getOutputStream(), "UTF-8");
+//                    out.write(obj.toString());
+//                    System.out.println("Keyframe detected and sent!");
+//                    socket.shutdownOutput();
+//                    ////////////////////////////////
+
+////                    out.writeInt(byteArray.length);
+////                    DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+////                    out.write(byteArray);
+////                    out.close();
+//
+////                    socket.close();
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                    Log.v("m1y","no connection!");
+//                }
+            }
+        }).start();
+
+
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
+    void send_image(Bitmap bitmap)
+    {
+        if(bitmap==null) return;
+        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.JPEG,80,stream);
+        final byte[] byteArray = stream.toByteArray();
+        //cast to string
+        final String encoded_img = Base64.encodeToString(byteArray, Base64.DEFAULT);
+        //create json object
+
+
+        System.out.println("Keyframe bitmap: row: "+bitmap.getHeight()+"column: "+bitmap.getWidth());
+        System.out.println("Keyframe size!"+byteArray.length);
+        web_sock_send(encoded_img);
+//        String txt_path = Environment.getExternalStorageDirectory().getAbsolutePath()+"/Download";
+//        File tmp_ = new File(txt_path,"tmp.jpg");
+//
+//        try (FileOutputStream out = new FileOutputStream(tmp_)) {
+//            bitmap.compress(Bitmap.CompressFormat.JPEG,80,out);
+//            // PNG is a lossless format, the compression factor (100) is ignored
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//        final Socket new_socket= socket;
+    }
+
     long timeStamp = 0;
     static private long kInterval = 500;
 
+    public Bitmap changeSize(Bitmap bitmap){
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+
+        //放大為螢幕的1/2大小
+        float screenWidth  = 640;		// 螢幕寬(畫素,如:480px)
+        float screenHeight = 480;		// 螢幕高(畫素,如:800p)
+//        Log.d("screen",screenWidth+"");
+        float scaleWidth = screenWidth/width;
+        float scaleHeight = screenHeight/height;
+
+        // 取得想要縮放的matrix引數
+        Matrix matrix = new Matrix();
+        matrix.postScale(scaleWidth, scaleHeight);
+        // 得到新的圖片
+        Bitmap newbm = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix,true);
+        return newbm;
+    }
+
+    int ticks = 0;
     void processImage(Bitmap bitmap) {
         if(bitmap==null) return;
 
@@ -594,14 +881,41 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
             //luminanceCopy = new byte[originalLuminance.length];
             return;
         }
+//
+        if(has_initialized && !need_relocalize){
+            ticks +=1;
+            if(ticks==5){
+                send_image(changeSize(bitmap));
+                ticks = 0;
+            }
 
-        tracker.onFrame(
-                previewWidth,
-                previewHeight,
-                previewWidth, //stride is the same as previewWidth
-                sensorOrientation,
-                luminanceCopy,
-                timestamp);
+        }else{
+            send_image(changeSize(bitmap));
+            need_relocalize = false;
+        }
+//        if(ticks==10){
+//        int[] arr;
+//        long[] cvArr;
+//        arr= new int[0];
+//        cvArr = new long[0];
+//        Bitmap bmp = changeSize(bitmap);
+//        Mat rgb = new Mat();
+//        Bitmap bmp32 = bmp.copy(Bitmap.Config.ARGB_8888, true);
+//        Utils.bitmapToMat(bmp32, rgb);
+//        float[] poseMatrix = CVTest(rgb.getNativeObjAddr(),frame_no,arr,cvArr); //从slam系统获得相机位姿矩阵
+
+
+//            ticks = 0;
+//        }
+
+
+//        tracker.onFrame(
+//                previewWidth,
+//                previewHeight,
+//                previewWidth, //stride is the same as previewWidth
+//                sensorOrientation,
+//                luminanceCopy,
+//                timestamp);
 //        trackingOverlay.postInvalidate();
         //System.arraycopy(originalLuminance, 0, luminanceCopy, 0, originalLuminance.length);
 
@@ -626,29 +940,30 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                     @Override
                     public void run() {
 
-                        final long startTime = System.currentTimeMillis();
-                        final List<Recognition> results = objectDetector.recognizeImage(croppedBitmap);
-//                        final List<Recognition> results = objectDetector.recognizeImage(rgbFrameBitmap);
-                        long endTime = System.currentTimeMillis();
+//                        final long startTime = System.currentTimeMillis();
 //
-                        org.opencv.core.Rect roi = new org.opencv.core.Rect();
-//
-                        for (final Recognition result : results) {
-                            BoxPosition pos = result.getLocation();
-                            final RectF location = new RectF(pos.getLeft(), pos.getTop(), pos.getRight(), pos.getBottom());
-//                            roi = new org.opencv.core.Rect((int)location.left, (int)location.top, (int)(location.right - location.left), (int)(location.bottom - location.top));
-                            cropToFrameTransform.mapRect(location);
-                            roi = new org.opencv.core.Rect((int)location.left, (int)location.top, (int)(location.right - location.left), (int)(location.bottom - location.top));
-                            result.setLocation(new BoxPosition(location.left, location.top, location.width(), location.height()));
-                        }
+////                        final List<Recognition> results = objectDetector.recognizeImage(croppedBitmap);
+////                        final List<Recognition> results = objectDetector.recognizeImage(rgbFrameBitmap);
+//                            long endTime = System.currentTimeMillis();
+////
+//                            org.opencv.core.Rect roi = new org.opencv.core.Rect();
+////
+//                            for (final Recognition result : results) {
+//                                BoxPosition pos = result.getLocation();
+//                                final RectF location = new RectF(pos.getLeft(), pos.getTop(), pos.getRight(), pos.getBottom());
+////                            roi = new org.opencv.core.Rect((int)location.left, (int)location.top, (int)(location.right - location.left), (int)(location.bottom - location.top));
+//                                cropToFrameTransform.mapRect(location);
+//                                roi = new org.opencv.core.Rect((int)location.left, (int)location.top, (int)(location.right - location.left), (int)(location.bottom - location.top));
+//                                result.setLocation(new BoxPosition(location.left, location.top, location.width(), location.height()));
+//                            }
 
-                        if (results.size() > 0) {
+//                            if (results.size() > 0) {
 
-                            if (onRecord) {
-                                record(copyBitmp, results);
-                            }
-                            else if (onRetrieve) {
-                                retrieve(copyBitmp, results);
+//                            if (onRecord) {
+////                                record(copyBitmp, results);
+//                            }
+                            if (onRetrieve) {
+                                retrieve(copyBitmp);
                             }
 //                            Mat mat = new Mat();
 //                            Utils.bitmapToMat(copyBitmp, mat);
@@ -659,25 +974,25 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
 //                            cropMat.release();
 //                            setImage(tBM);
 //                            copy.recycle();
-                        }
-                        else if (onRecord) {
-                            runOnUiThread(()->{
-                                Toast.makeText(getApplicationContext(), "There is no recognized object in frame", Toast.LENGTH_SHORT).show();
-                            });
-                            onRecord = false;
-                        }
-//                        RectF rectF = new RectF(9, 79, 283, 216);//previewWidth, previewHeight;
-//                        cropToFrameTransform.mapRect(rectF);
-//                        RectF rectF = new RectF(0, 0, previewWidth, previewHeight);
-//                        Classifier.Recognition result = new Classifier.Recognition("1434", "test", 0.99f, rectF);
-//                        mappedRecognitions.add(result);
-
-//                        str=String.format("mapped:%d, cropped image size(%d, %d)",mappedRecognitions.size(), bitmap.getWidth(), bitmap.getHeight());
-//                        tracker.trackResults(mappedRecognitions, luminanceCopy, currTimestamp);
-                        tracker.trackResults(results, luminanceCopy, currTimestamp);
-//                        if (mappedRecognitions.size() > 0)
-                        if (results.size() > 0)
-                            trackingOverlay.postInvalidate();
+//                        }
+//                        else if (onRecord) {
+//                            runOnUiThread(()->{
+//                                Toast.makeText(getApplicationContext(), "There is no recognized object in frame", Toast.LENGTH_SHORT).show();
+//                            });
+//                            onRecord = false;
+//                        }
+////                        RectF rectF = new RectF(9, 79, 283, 216);//previewWidth, previewHeight;
+////                        cropToFrameTransform.mapRect(rectF);
+////                        RectF rectF = new RectF(0, 0, previewWidth, previewHeight);
+////                        Classifier.Recognition result = new Classifier.Recognition("1434", "test", 0.99f, rectF);
+////                        mappedRecognitions.add(result);
+//
+////                        str=String.format("mapped:%d, cropped image size(%d, %d)",mappedRecognitions.size(), bitmap.getWidth(), bitmap.getHeight());
+////                        tracker.trackResults(mappedRecognitions, luminanceCopy, currTimestamp);
+//                        tracker.trackResults(results, luminanceCopy, currTimestamp);
+////                        if (mappedRecognitions.size() > 0)
+//                        if (results.size() > 0)
+//                            trackingOverlay.postInvalidate();
                     }
                 });
         bitmap.recycle();
@@ -768,161 +1083,173 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
 
     static float kConThd = 0.6f;
 
-    private void retrieve(Bitmap img, List<Recognition> recognitions) {
+    private void retrieve(Bitmap img) {
 
-        double mr_th=0.15; //matching ratio threshold
-        boolean match=false;
-        Mat mat = new Mat();
-        Utils.bitmapToMat(img, mat);
-        Set<String> recs = rs.keySet();
-        StringBuilder sb = new StringBuilder();
-        //horizontal angle difference, positive stands for right perspective, negative for left perspective
-        float hd = (Math.abs(cRD.z - refRD.z)>180)?(360-(cRD.z-refRD.z)) : (cRD.z-refRD.z);
-        //vertical angle difference, assume the angle can't exceed 90
-        float vd = cRD.x-refRD.x;
-        float vo_x=0;
-        float vo_y=0;
-        float scale=0;
+//        double mr_th=0.15; //matching ratio threshold
+//        boolean match=false;
+//        Mat mat = new Mat();
+//        Utils.bitmapToMat(img, mat);
+//        Set<String> recs = rs.keySet();
+//        StringBuilder sb = new StringBuilder();
+//        //horizontal angle difference, positive stands for right perspective, negative for left perspective
+//        float hd = (Math.abs(cRD.z - refRD.z)>180)?(360-(cRD.z-refRD.z)) : (cRD.z-refRD.z);
+//        //vertical angle difference, assume the angle can't exceed 90
+//        float vd = cRD.x-refRD.x;
+//        float vo_x=0;
+//        float vo_y=0;
+//        float scale=0;
+//
+//        if (Math.abs(hd) > 90 || Math.abs(vd) > 90)
+//            sb.append("angle difference larger than 90 degree");
+//        else {
+//            int count_r=0;
+//
+//            MatOfDMatch m = null;
+//            ImageFeature qmIF = null;
+//            ImageFeature tmIF = null;
+//            for (Recognition r : recognitions) {
+//                if (r.getConfidence()<kConThd) continue;
+//                double mr=0; //temporarily save the matching ratio
+//                if (recs.contains(r.getTitle())) {
+//                    BoxPosition location = r.getLocation();
+//                    Rect roi = new Rect(location.getLeftInt(), location.getTopInt(), location.getWidthInt(), location.getHeightInt());
+//                    Mat qMat = new Mat(mat, roi);
+//                    ImageFeature qIF = ImageProcessor.extractORBFeatures(qMat, 500);
+//                    List<List<ImageFeature>> tIFs = rs.get(r.getTitle());
+//                    List<BoxPosition> tBPs = bs.get(r.getTitle());
+//                    int match_idx=-1;
+//                    for (int i=0; i < tIFs.size(); i++) {
+//                        List<ImageFeature> ts = tIFs.get(i);
+//                        BoxPosition bp = tBPs.get(i);
+//                        //construct template image feature candidates
+//                        List<ImageFeature> ifs = new ArrayList<>();
+//                        float area_ratio = bp.getHeight()*bp.getWidth() / (r.getLocation().getWidth()*r.getLocation().getHeight());
+//                        if (hd > 0)
+//                            ifs.add(ts.get(1));
+//                        else ifs.add(ts.get(0));
+//                        if (vd>0)
+//                            ifs.add(ts.get(3));
+//                        else ifs.add(ts.get(2));
+//                        if (area_ratio > 1)
+//                            ifs.add(ts.get(5));
+//                        else ifs.add(ts.get(4));
+//
+//                        long startTime = System.currentTimeMillis();
+//
+//                        ImageFeature tIF = constructTemplateFP(ifs, new float[]{Math.abs(hd)/45, Math.abs(vd)/45, Math.abs(area_ratio-1)}, kTemplateFPNum);
+//                        MatOfDMatch matches = ImageProcessor.matchWithRegression(qIF, tIF, 5, 400, 20);
+//
+//                        long endTime = System.currentTimeMillis();
+//
+//                        double tmr = (double) matches.total() / tIF.getSize();
+//                        sb.append(r.getTitle() + " " + tmr + ",");
+//                        if (tmr > mr){
+//                            mr = tmr;
+//                            match_idx=tIFs.indexOf(ts);
+//                            m = matches;
+//                            qmIF = qIF;
+//                            tmIF = tIF;
+//                        }
+//                    }
+//
+//
+//                    //derive the position of the VO
+//                    if (mr > mr_th) {
+//                        match = true;
+//                        List<BoxPosition> bpList=bs.get(r.getTitle());
+//                        BoxPosition bp = bpList.get(match_idx);
+//                        if (bp == null) return;
+//
+//                        double tmin_x, tmin_y, tmax_x, tmax_y;
+//                        double qmin_x, qmin_y, qmax_x, qmax_y;
+//                        qmax_x = qmax_y = tmax_x = tmax_y = Double.MIN_VALUE;
+//                        qmin_x = qmin_y = tmin_x = tmin_y = Double.MAX_VALUE;
+//
+//                        List<KeyPoint> tKP = tmIF.getObjectKeypoints().toList();
+//                        List<KeyPoint> qKP = qmIF.getObjectKeypoints().toList();
+//                        //get a rectangle that can bound the matched key point
+//                        for (DMatch dMatch : m.toList()) {
+//                            KeyPoint q = qKP.get(dMatch.queryIdx);
+//                            KeyPoint t = tKP.get(dMatch.trainIdx);
+//                            if (q.pt.x > qmax_x) qmax_x = q.pt.x;
+//                            if (q.pt.y > qmax_y) qmax_y = q.pt.y;
+//                            if (t.pt.x > tmax_x) tmax_x = t.pt.x;
+//                            if (t.pt.y > tmax_y) tmax_y = t.pt.y;
+//                            if (q.pt.x < qmin_x) qmin_x = q.pt.x;
+//                            if (q.pt.y < qmin_y) qmin_y = q.pt.y;
+//                            if (t.pt.x < tmin_x) tmin_x = t.pt.x;
+//                            if (t.pt.y < tmin_y) tmin_y = t.pt.y;
+//                        }
+//                        float dx = (float)(imgSize.height/2 -(tmax_x+tmin_x)/2);
+//                        float dy = (float)(imgSize.width/2 -(tmax_y+tmin_y)/2);
+//                        float r_scale = (float)((tmax_x-tmin_x) / (qmax_x-qmin_x) + (tmax_y-tmin_y) / (qmax_y-qmin_y)) / 2;
+//                        float r_center_x = (float)(qmax_x+qmin_x) / 2;
+//                        float r_center_y = (float)(qmax_y+qmin_y) / 2;
+//
+//                        double radiant_v = vd/180*Math.PI;
+//                        double radiant_h = hd/180*Math.PI;
+//                        dy = angleChangeHelper(dy, r_center_y, r_scale, (float)radiant_v);
+//                        dx = angleChangeHelper(dx, r_center_x, r_scale, (float)radiant_h);
+//
+//                        vo_x += r_center_x + dx * r_scale;
+//                        vo_y += r_center_y + dy * r_scale;
+//                        scale += r_scale;
+//                        count_r++;
+//                    }
+//                }
+//            }
+//            if(match) {//use average value for multiple recognitions
+//                vo_x = vo_x / count_r;
+//                vo_y = vo_y / count_r;
+//                scale= scale / count_r;
+//            }
+//        }
+        if(get_viewer_position) {
 
-        if (Math.abs(hd) > 90 || Math.abs(vd) > 90)
-            sb.append("angle difference larger than 90 degree");
-        else {
-            int count_r=0;
-
-            MatOfDMatch m = null;
-            ImageFeature qmIF = null;
-            ImageFeature tmIF = null;
-            for (Recognition r : recognitions) {
-                if (r.getConfidence()<kConThd) continue;
-                double mr=0; //temporarily save the matching ratio
-                if (recs.contains(r.getTitle())) {
-                    BoxPosition location = r.getLocation();
-                    Rect roi = new Rect(location.getLeftInt(), location.getTopInt(), location.getWidthInt(), location.getHeightInt());
-                    Mat qMat = new Mat(mat, roi);
-                    ImageFeature qIF = ImageProcessor.extractORBFeatures(qMat, 500);
-                    List<List<ImageFeature>> tIFs = rs.get(r.getTitle());
-                    List<BoxPosition> tBPs = bs.get(r.getTitle());
-                    int match_idx=-1;
-                    for (int i=0; i < tIFs.size(); i++) {
-                        List<ImageFeature> ts = tIFs.get(i);
-                        BoxPosition bp = tBPs.get(i);
-                        //construct template image feature candidates
-                        List<ImageFeature> ifs = new ArrayList<>();
-                        float area_ratio = bp.getHeight()*bp.getWidth() / (r.getLocation().getWidth()*r.getLocation().getHeight());
-                        if (hd > 0)
-                            ifs.add(ts.get(1));
-                        else ifs.add(ts.get(0));
-                        if (vd>0)
-                            ifs.add(ts.get(3));
-                        else ifs.add(ts.get(2));
-                        if (area_ratio > 1)
-                            ifs.add(ts.get(5));
-                        else ifs.add(ts.get(4));
-
-                        long startTime = System.currentTimeMillis();
-
-                        ImageFeature tIF = constructTemplateFP(ifs, new float[]{Math.abs(hd)/45, Math.abs(vd)/45, Math.abs(area_ratio-1)}, kTemplateFPNum);
-                        MatOfDMatch matches = ImageProcessor.matchWithRegression(qIF, tIF, 5, 400, 20);
-
-                        long endTime = System.currentTimeMillis();
-
-                        double tmr = (double) matches.total() / tIF.getSize();
-                        sb.append(r.getTitle() + " " + tmr + ",");
-                        if (tmr > mr){
-                            mr = tmr;
-                            match_idx=tIFs.indexOf(ts);
-                            m = matches;
-                            qmIF = qIF;
-                            tmIF = tIF;
-                        }
-                    }
-
-
-                    //derive the position of the VO
-                    if (mr > mr_th) {
-                        match = true;
-                        List<BoxPosition> bpList=bs.get(r.getTitle());
-                        BoxPosition bp = bpList.get(match_idx);
-                        if (bp == null) return;
-
-                        double tmin_x, tmin_y, tmax_x, tmax_y;
-                        double qmin_x, qmin_y, qmax_x, qmax_y;
-                        qmax_x = qmax_y = tmax_x = tmax_y = Double.MIN_VALUE;
-                        qmin_x = qmin_y = tmin_x = tmin_y = Double.MAX_VALUE;
-
-                        List<KeyPoint> tKP = tmIF.getObjectKeypoints().toList();
-                        List<KeyPoint> qKP = qmIF.getObjectKeypoints().toList();
-                        //get a rectangle that can bound the matched key point
-                        for (DMatch dMatch : m.toList()) {
-                            KeyPoint q = qKP.get(dMatch.queryIdx);
-                            KeyPoint t = tKP.get(dMatch.trainIdx);
-                            if (q.pt.x > qmax_x) qmax_x = q.pt.x;
-                            if (q.pt.y > qmax_y) qmax_y = q.pt.y;
-                            if (t.pt.x > tmax_x) tmax_x = t.pt.x;
-                            if (t.pt.y > tmax_y) tmax_y = t.pt.y;
-                            if (q.pt.x < qmin_x) qmin_x = q.pt.x;
-                            if (q.pt.y < qmin_y) qmin_y = q.pt.y;
-                            if (t.pt.x < tmin_x) tmin_x = t.pt.x;
-                            if (t.pt.y < tmin_y) tmin_y = t.pt.y;
-                        }
-                        float dx = (float)(imgSize.height/2 -(tmax_x+tmin_x)/2);
-                        float dy = (float)(imgSize.width/2 -(tmax_y+tmin_y)/2);
-                        float r_scale = (float)((tmax_x-tmin_x) / (qmax_x-qmin_x) + (tmax_y-tmin_y) / (qmax_y-qmin_y)) / 2;
-                        float r_center_x = (float)(qmax_x+qmin_x) / 2;
-                        float r_center_y = (float)(qmax_y+qmin_y) / 2;
-
-                        double radiant_v = vd/180*Math.PI;
-                        double radiant_h = hd/180*Math.PI;
-                        dy = angleChangeHelper(dy, r_center_y, r_scale, (float)radiant_v);
-                        dx = angleChangeHelper(dx, r_center_x, r_scale, (float)radiant_h);
-
-                        vo_x += r_center_x + dx * r_scale;
-                        vo_y += r_center_y + dy * r_scale;
-                        scale += r_scale;
-                        count_r++;
-                    }
-                }
-            }
-            if(match) {//use average value for multiple recognitions
-                vo_x = vo_x / count_r;
-                vo_y = vo_y / count_r;
-                scale= scale / count_r;
-            }
-        }
-        if(match) {
-
-            float finalScale = scale;
-            float finalVo_x = vo_x;
-            float finalVo_y = vo_y;
+//            float finalScale = scale;
+//            float finalVo_x = vo_x;
+//            float finalVo_y = vo_y;
 
 
             runOnUiThread(() -> {
 
-//                DisplayMetrics displayMetrics = new DisplayMetrics();
-//                getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
-//                float width = displayMetrics.heightPixels;
-//                float height = displayMetrics.widthPixels;
+////                DisplayMetrics displayMetrics = new DisplayMetrics();
+////                getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+////                float width = displayMetrics.heightPixels;
+////                float height = displayMetrics.widthPixels;
+//
+//                float width=previewHeight;
+//                float height=previewWidth;
+//                float v_dist_center= (float)Math.sqrt((finalVo_x -width/2)*(finalVo_x -width/2)+(finalVo_y -height/2)*(finalVo_y -height/2));
+//                float v_angle=(float)Math.atan(v_dist_center/v_dist);
+////                float x_angle= (float)Math.atan((finalVo_x -width/2)/v_dist);//x angle of the VO
+////                float y_angle= (float)Math.atan((finalVo_y -height/2)/v_dist);
+//
+//                float x,y,z;
+//                float dist_to_pixel= (float) (VO_dist_for_viewer * finalScale * Math.cos(v_angle) / v_dist);
+//                z = -v_dist*dist_to_pixel;
+//                x= (finalVo_x-width/2)*dist_to_pixel;
+//                y= (finalVo_y-height/2)*dist_to_pixel;
+//                Log.d("match_strings",String.format("before placeAndy:%.02f,%.02f,%.02f",x,y,z));
+//                //prevent unrealistic cases
+////                if (Math.abs(x*y) > 1) return;
 
-                float width=previewHeight;
-                float height=previewWidth;
-                float v_dist_center= (float)Math.sqrt((finalVo_x -width/2)*(finalVo_x -width/2)+(finalVo_y -height/2)*(finalVo_y -height/2));
-                float v_angle=(float)Math.atan(v_dist_center/v_dist);
-//                float x_angle= (float)Math.atan((finalVo_x -width/2)/v_dist);//x angle of the VO
-//                float y_angle= (float)Math.atan((finalVo_y -height/2)/v_dist);
+//                float x,y,z;
+//                x = -0.16f;
+//                y = 0.02f;
+//                z = -1f;
+//                if(){
 
-                float x,y,z;
-                float dist_to_pixel= (float) (VO_dist_for_viewer * finalScale * Math.cos(v_angle) / v_dist);
-                z = -v_dist*dist_to_pixel;
-                x= (finalVo_x-width/2)*dist_to_pixel;
-                y= (finalVo_y-height/2)*dist_to_pixel;
-                Log.d("match_strings",String.format("before placeAndy:%.02f,%.02f,%.02f",x,y,z));
-                //prevent unrealistic cases
-                if (Math.abs(x*y) > 1) return;
-                placeAndy(x, y, z);
+
+//                System.out.println("msg" + "place andy"+view_z);
+                placeAndy(view_y, view_x , -view_z);
+                get_viewer_position = false;
+//                }
+//
                 onRetrieve=false;
 
-                TextView tv = findViewById(R.id.mratio);
-                tv.setText(sb.toString() + String.format("(%f,%f,%f)", x, y, z));
+//                TextView tv = findViewById(R.id.mratio);
+//                tv.setText(sb.toString() + String.format("(%f,%f,%f)", x, y, z));
             });
         }
     }
@@ -1145,7 +1472,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
         }
 
         Camera camera=arFragment.getArSceneView().getArFrame().getCamera();
-        Pose mCameraRelativePose= Pose.makeTranslation(0.0f, 0.0f, -1f);
+        Pose mCameraRelativePose= Pose.makeTranslation(0.0f, 0.0f, 0.0f);
         arSession = arFragment.getArSceneView().getSession();
 
 
