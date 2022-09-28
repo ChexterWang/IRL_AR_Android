@@ -184,6 +184,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
     static Boolean onRetrieve = false;
     private WebSocketClient myWebSocketClient;
     private Integer frame_no = 0;
+    private Integer device_no = 0;
     private boolean send_vo = false;
     private boolean viewer_vo = false;
     private boolean get_viewer_position = false;
@@ -597,11 +598,13 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
 
                         }else if(poselist.get(0).equals("relocalize")) {
                             // need_relocalize = true;
+                            // no host(viewer -> pre host)
                             onRetrieve = false;
                             viewer_vo = false;
+                            device_no = Integer.valueOf(poselist.get(1));
                             runOnUiThread(() -> {
                                 // Toast.makeText(getApplicationContext(), "relocalize", Toast.LENGTH_SHORT).show();
-                                toastShow(getApplicationContext(), "retrieving");
+                                toastShow(getApplicationContext(), "server not set yet, device id: "+device_no);
                             });
                         }
 
@@ -640,14 +643,14 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 JSONObject obj1 = new JSONObject();
                 String data_header;
                 if(send_vo){
-                    data_header = frame_no.toString() + "_host_" + encoded_img;
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_host_" + encoded_img;
                     send_vo = false;
                 } else if(viewer_vo){
-                    data_header = frame_no.toString() + "_viewer_" + encoded_img;
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_viewer_" + encoded_img;
                     viewer_vo = false;
                 }
                 else{
-                    data_header = frame_no.toString() + "_F_" + encoded_img;
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_F_" + encoded_img;
                 }
 
                 try{
@@ -670,7 +673,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 
                 if(myWebSocketClient.isOpen()){
                     //For handshaking
-                    myWebSocketClient.send(data);
+                    // myWebSocketClient.send(data);
 
                     //For subscription bounding box
                     if(!has_subscribed) {
