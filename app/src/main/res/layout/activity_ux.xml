@@ -17,8 +17,8 @@
     <fragment
         android:id="@+id/ux_fragment"
         android:name="com.google.ar.sceneform.samples.promar.MyArFragment"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_width="1920px"
+        android:layout_height="1080px" />
     <!--
 android:layout_height="match_parent"
 -->

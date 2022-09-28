@@ -23,6 +23,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.RectF;
+import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -57,6 +58,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.ar.core.Trackable;
+import com.google.ar.core.Config;
 import com.google.ar.core.Frame;
 import com.google.ar.core.Anchor;
 import com.google.ar.core.Camera;
@@ -98,6 +100,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Collection;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.java_websocket.client.WebSocketClient;
 
@@ -184,9 +187,19 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
     private boolean send_vo = false;
     private boolean viewer_vo = false;
     private boolean get_viewer_position = false;
-    float view_x, view_y, view_z;
-    boolean need_relocalize = false;
+    private float view_x, view_y, view_z;
+    private boolean need_relocalize = false;
+    private boolean planeVisible = false;
+    private float andyScale = 0.4f;
 
+    private PointerDrawable pointer = new PointerDrawable();
+
+    public void toastShow(Context con, String str){
+        Toast toast = Toast.makeText(con, str, Toast.LENGTH_SHORT);
+        TextView v = (TextView) toast.getView().findViewById(android.R.id.message);
+        v.setTextColor(Color.BLACK);
+        toast.show();
+    }
 
     @Override
     @SuppressWarnings({"AndroidApiChecker", "FutureReturnValueIgnored"})
@@ -234,6 +247,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
             try {
                 img = frame.acquireCameraImage(); //catch the image from camera
                 String msg = img.getFormat()+":"+Integer.toString(img.getWidth())+","+Integer.toString(img.getHeight());
+                // Log.d("img format", msg);
                 //setImage(img);
                 luminanceCopy = MyUtils.imageToByte(img); //convert image to byte[]
                 bitmap=MyUtils.imageToBitmap(img);
@@ -250,8 +264,15 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 initDistParameters();
             }
 
-            processImage(bitmap);
+            if(!planeVisible){
+                Collection plane = frame.getUpdatedTrackables(Plane.class);
+                if(plane.isEmpty() == false){
+                    toastShow(PromarMainActivity.this, "plane found");
+                    planeVisible = true;
+                }
+            }
 
+            processImage(bitmap);
         });
 
 
@@ -313,7 +334,8 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 Button btn=(Button) view;
                 String tag=(String)btn.getTag();
                 if(tag.equals("Place VO")) {
-                    placeAndy(previewWidth / 2, previewHeight / 2);
+
+                    placeAndy(previewWidth/2, previewHeight/2);
                     runOnUiThread(()-> {
                         btn.setText("Confirm");
                         btn.setTag("Confirm");
@@ -331,7 +353,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                         btn.setTag("Place VO");
                         btn.setText("Place VO");
                         send_vo = true;
-                        Toast.makeText(PromarMainActivity.this, "set host", Toast.LENGTH_SHORT).show();
+                        toastShow(PromarMainActivity.this, "set host");
                         sbar.setVisibility(View.INVISIBLE);
                     });
 
@@ -353,7 +375,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                         onRetrieve = true;
                         runOnUiThread(()-> {
                             viewer_vo = true;
-                            Toast.makeText(PromarMainActivity.this, "viewer send", Toast.LENGTH_SHORT).show();
+                            toastShow(PromarMainActivity.this, "viewer send");
                             btn.setText("Clear");
                             btn.setTag("Clear");
                             //btn.setEnabled(false);
@@ -388,7 +410,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 RadioButton rb = (RadioButton) group.findViewById(checkedId);
                 String msg= "Switch to "+ rb.getText();
                 if (null != rb ) {
-                    Toast.makeText(PromarMainActivity.this, msg, Toast.LENGTH_SHORT).show();
+                    toastShow(PromarMainActivity.this, msg);
                 }
                 if(rb.getId()==R.id.rb_owner){
                     recBtn.setEnabled(true);
@@ -506,7 +528,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
         ///////////////////////////Web Socket ROS_Bridge
         URI uri;
         try {
-            uri = new URI("ws://192.168.50.76:9090/");
+            uri = new URI("ws://192.168.50.57:9090/");
         } catch (URISyntaxException e) {
             e.printStackTrace();
             return;
@@ -535,7 +557,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                         List<String> poselist = Arrays.asList(data.split(","));
                         if(poselist.get(0).equals("host_set")){
                             runOnUiThread(()->{
-                                Toast.makeText(getApplicationContext(), "server set done", Toast.LENGTH_SHORT).show();
+                                toastShow(getApplicationContext(), "server set done");
                             });
                         }
                         else if(poselist.get(0).equals("viewer_done")){
@@ -543,34 +565,34 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                             view_y = Float.parseFloat(poselist.get(2));
                             view_z = Float.parseFloat(poselist.get(3));
                             runOnUiThread(() -> {
-                                Toast.makeText(getApplicationContext(), "rcv depth: "+view_z, Toast.LENGTH_SHORT).show();
+                                toastShow(getApplicationContext(), "rcv angle: "+view_z);
                             });
-                            System.out.println("msg data" + data);
+                            /* System.out.println("msg data" + data);
                             System.out.println("msg x" + view_x);
                             System.out.println("msg y" + view_y);
                             System.out.println("msg z" + view_z);
-                            // if(view_z>0.85 && view_z <=1.2f){
-                            //     view_z = 1.2f;
-                            // }else if(view_z>1.2f && view_z<=1.3f){
-                            //     view_z = 1.4f;
-                            // }else if(view_z>1.3f && view_z<=1.4f){
-                            //     view_z = 1.5f;
-                            // }else if(view_z > 1.4f){
-                            //     view_z = 1.6f;
-                            // }
+                            if(view_z>0.85 && view_z <=1.2f){
+                                view_z = 1.2f;
+                            }else if(view_z>1.2f && view_z<=1.3f){
+                                view_z = 1.4f;
+                            }else if(view_z>1.3f && view_z<=1.4f){
+                                view_z = 1.5f;
+                            }else if(view_z > 1.4f){
+                                view_z = 1.6f;
+                            }
                             view_z = view_z / 1.2f;
                             if(view_z > 1.4f){
                                 view_z = 1.4f;
                             }
                             System.out.println("msg x final" + view_x);
                             System.out.println("msg y final" + view_y);
-                            System.out.println("msg z final" + view_z);
+                            System.out.println("msg z final" + view_z); */
                             get_viewer_position = true;
 
                         }else if(poselist.get(0).equals("initialize")){
                             has_initialized = true;
                             runOnUiThread(()->{
-                                Toast.makeText(getApplicationContext(), "SLAM initialize", Toast.LENGTH_SHORT).show();
+                                toastShow(getApplicationContext(), "SLAM initialize");
                             });
 
                         }else if(poselist.get(0).equals("relocalize")) {
@@ -579,7 +601,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                             viewer_vo = false;
                             runOnUiThread(() -> {
                                 // Toast.makeText(getApplicationContext(), "relocalize", Toast.LENGTH_SHORT).show();
-                                Toast.makeText(getApplicationContext(), "retrieving", Toast.LENGTH_SHORT).show();
+                                toastShow(getApplicationContext(), "retrieving");
                             });
                         }
 
@@ -645,24 +667,27 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 data = "{\"op\": \"" + op1 + "\"";
                 data += ",\"topic\":\"" + topic1 + "\"";
                 data += ",\"type\":\"" + type1 + "\"}";
-                //For handshaking
-                myWebSocketClient.send(data);
+                
+                if(myWebSocketClient.isOpen()){
+                    //For handshaking
+                    myWebSocketClient.send(data);
 
-                //For subscription bounding box
-                if(!has_subscribed) {
-                    String op = "subscribe";
-                    String id = "001";
-                    String topic = "/IRL_SLAM";
-                    String type = "std_msgs/String";
-                    String subs = "";
-                    subs = "{\"op\": \"" + op + "\"";
-                    subs += ",\"id\":\"" + id + "\"";
-                    subs += ",\"topic\":\"" + topic + "\"";
-                    subs += ",\"type\":\"" + type + "\"}";
-                    has_subscribed = true;
-                    myWebSocketClient.send(subs);
+                    //For subscription bounding box
+                    if(!has_subscribed) {
+                        String op = "subscribe";
+                        String id = "001";
+                        String topic = "/IRL_SLAM";
+                        String type = "std_msgs/String";
+                        String subs = "";
+                        subs = "{\"op\": \"" + op + "\"";
+                        subs += ",\"id\":\"" + id + "\"";
+                        subs += ",\"topic\":\"" + topic + "\"";
+                        subs += ",\"type\":\"" + type + "\"}";
+                        has_subscribed = true;
+                        myWebSocketClient.send(subs);
+                    }
+                    myWebSocketClient.send(obj.toString());
                 }
-                myWebSocketClient.send(obj.toString());
 
                 frame_no++;
             }
@@ -798,6 +823,10 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
     }
 
     void placeAndy(float x, float y){
+        View contentView = findViewById(android.R.id.content);
+        pointer.setLoc((int)x,(int)y);
+        contentView.getOverlay().add(pointer);
+        contentView.invalidate();
         Frame frame = arFragment.getArSceneView().getArFrame();
         android.graphics.Point pt = new android.graphics.Point((int)x, (int)y);
         List<HitResult> hits;
@@ -812,9 +841,9 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                     anchorNode.setParent(arFragment.getArSceneView().getScene());
                     if(andy==null) andy = new TransformableNode(arFragment.getTransformationSystem());
                     
-                    andy.setLocalRotation(Quaternion.axisAngle(new Vector3(0f, 1f, 0f), -view_z));
-                    andy.getScaleController().setMinScale(0.3f);
-                    andy.setLocalScale(new Vector3(0.3f, 0.3f, 0.3f));
+                    andy.setLocalRotation(Quaternion.axisAngle(new Vector3(0f, 1f, 0f), view_z));
+                    andy.getScaleController().setMinScale(andyScale);
+                    andy.setLocalScale(new Vector3(andyScale,andyScale,andyScale));
                     andy.setParent(anchorNode);
                     andy.setRenderable(andyRenderable);
                     andy.select();
