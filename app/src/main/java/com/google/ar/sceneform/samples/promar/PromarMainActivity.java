@@ -184,7 +184,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
     static Boolean onRetrieve = false;
     private WebSocketClient myWebSocketClient;
     private Integer frame_no = 0;
-    private Integer device_no = 0;
+    private Integer device_no = -1;
     private boolean send_vo = false;
     private boolean viewer_vo = false;
     private boolean get_viewer_position = false;
@@ -294,7 +294,10 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                         });
 
         arFragment.setOnTapArPlaneListener(
-                (HitResult hitResult, Plane plane, MotionEvent motionEvent) -> {
+                (HitResult hitResult, Plane plane, MotionEvent motionEvent) ->
+                {
+                    return;
+/*              {
                     if (andyRenderable == null) {
                         return;
                     }
@@ -324,7 +327,7 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                     andy.setParent(anchorNode);
                     andy.setRenderable(andyRenderable);
                     andy.select();
-
+*/
                 });
         Button recBtn = findViewById(R.id.record);  //record button
         Button rteBtn = findViewById(R.id.retrieve);    //retrieve button
@@ -389,7 +392,9 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
 
                             btn.setTag("Retrieve");
                             btn.setText("Retrieve");
-                            andy.setParent(null);
+                            if(andy != null) {
+                                andy.setParent(null);
+                            }
                         });
 
                     }
@@ -560,15 +565,19 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                             runOnUiThread(()->{
                                 toastShow(getApplicationContext(), "server set done");
                             });
-                        }
-                        else if(poselist.get(0).equals("viewer_done")){
-                            view_x = Float.parseFloat(poselist.get(1));
-                            view_y = Float.parseFloat(poselist.get(2));
-                            view_z = Float.parseFloat(poselist.get(3));
-                            runOnUiThread(() -> {
-                                toastShow(getApplicationContext(), "rcv angle: "+view_z);
-                            });
-                            /* System.out.println("msg data" + data);
+                        } else if(poselist.get(0).equals("viewer_done")){
+                            int rcv_id = Integer.valueOf(poselist.get(4));
+                            if(rcv_id == device_no){
+                                view_x = Float.parseFloat(poselist.get(1));
+                                view_y = Float.parseFloat(poselist.get(2));
+                                view_z = Float.parseFloat(poselist.get(3));
+                                runOnUiThread(() -> {
+                                    toastShow(getApplicationContext(), "rcv angle: "+view_z);
+                                });
+                                get_viewer_position = true;
+                            }
+/*
+                            System.out.println("msg data" + data);
                             System.out.println("msg x" + view_x);
                             System.out.println("msg y" + view_y);
                             System.out.println("msg z" + view_z);
@@ -587,25 +596,31 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                             }
                             System.out.println("msg x final" + view_x);
                             System.out.println("msg y final" + view_y);
-                            System.out.println("msg z final" + view_z); */
-                            get_viewer_position = true;
-
-                        }else if(poselist.get(0).equals("initialize")){
+                            System.out.println("msg z final" + view_z);
+*/
+                        } else if(poselist.get(0).equals("initialize")) {
                             has_initialized = true;
                             runOnUiThread(()->{
                                 toastShow(getApplicationContext(), "SLAM initialize");
                             });
 
-                        }else if(poselist.get(0).equals("relocalize")) {
+                        } else if(poselist.get(0).equals("relocalize")) {
                             // need_relocalize = true;
                             // no host(viewer -> pre host)
                             onRetrieve = false;
                             viewer_vo = false;
-                            device_no = Integer.valueOf(poselist.get(1));
+                            // device_no = Integer.valueOf(poselist.get(1));
                             runOnUiThread(() -> {
                                 // Toast.makeText(getApplicationContext(), "relocalize", Toast.LENGTH_SHORT).show();
-                                toastShow(getApplicationContext(), "server not set yet, device id: "+device_no);
+                                toastShow(getApplicationContext(), "server not set yet");
                             });
+                        } else if(poselist.get(0).equals("id")) {
+                            if(device_no < 1){
+                                device_no = Integer.valueOf(poselist.get(1));
+                                runOnUiThread(() -> {
+                                    toastShow(getApplicationContext(), "device id: "+poselist.get(1));
+                                });
+                            }
                         }
 
                     }
@@ -642,24 +657,25 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 JSONObject obj = new JSONObject();
                 JSONObject obj1 = new JSONObject();
                 String data_header;
-                if(send_vo){
+                if(device_no < 0) {
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_getId_" + encoded_img;
+                    device_no = 0;
+                } else if(send_vo) {
                     data_header = device_no.toString() + '_' + frame_no.toString() + "_host_" + encoded_img;
                     send_vo = false;
-                } else if(viewer_vo){
+                } else if(viewer_vo && device_no > 0) {
                     data_header = device_no.toString() + '_' + frame_no.toString() + "_viewer_" + encoded_img;
                     viewer_vo = false;
-                }
-                else{
+                } else {
                     data_header = device_no.toString() + '_' + frame_no.toString() + "_F_" + encoded_img;
                 }
 
-                try{
+                try {
                     obj1.put("data", data_header);
                     obj.put("op","publish");
                     obj.put("topic","/chatter");
                     obj.put("msg", obj1);
-                }
-                catch(JSONException e){
+                } catch(JSONException e) {
                     Log.i("error sending", "gg");
                 }
                 String data = "";
