@@ -192,6 +192,9 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
     private boolean need_relocalize = false;
     private boolean planeVisible = false;
     private float andyScale = 0.4f;
+    private String KalibInString = "737.037,699.167,340.565,218.486";
+
+
 
     private PointerDrawable pointer = new PointerDrawable();
 
@@ -657,17 +660,18 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
                 JSONObject obj = new JSONObject();
                 JSONObject obj1 = new JSONObject();
                 String data_header;
+                // add "_" at end to properly parse data (in IRL_websocket.py)
                 if(device_no < 0) {
-                    data_header = device_no.toString() + '_' + frame_no.toString() + "_getId_" + encoded_img;
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_getId_" + encoded_img + "_" + KalibInString + "_";
                     device_no = 0;
                 } else if(send_vo) {
-                    data_header = device_no.toString() + '_' + frame_no.toString() + "_host_" + encoded_img;
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_host_" + encoded_img + "_";
                     send_vo = false;
                 } else if(viewer_vo && device_no > 0) {
-                    data_header = device_no.toString() + '_' + frame_no.toString() + "_viewer_" + encoded_img;
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_viewer_" + encoded_img + "_";
                     viewer_vo = false;
                 } else {
-                    data_header = device_no.toString() + '_' + frame_no.toString() + "_F_" + encoded_img;
+                    data_header = device_no.toString() + '_' + frame_no.toString() + "_F_" + encoded_img + "_";
                 }
 
                 try {
