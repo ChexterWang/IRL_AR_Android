@@ -22,7 +22,40 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.ByteBuffer;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Collections;
+
 public class MyUtils {
+
+    private static Map<String, String> deviceToKalibMap = new HashMap<String, String>();
+    private static final boolean enableLog = false;
+
+    static {
+        Map<String, String> tmpMap = new HashMap<String, String>();
+        // {"MODEL", "fx,fy,cx,cy"}
+        // cx, cy means principal point which should be ideally the center of the image.
+        // Thus, it should be factored by image size(640, 480)
+        tmpMap.put("Pixel 4", "737.037,699.167,340.565,218.486");
+        tmpMap.put("Pixel 6", "3186.991,3189.594,330.051,249.182");
+        tmpMap.put("J9210", "3204.217,3208.187,325.824,242.403");
+        deviceToKalibMap = Collections.unmodifiableMap(tmpMap);
+    }
+
+    public static String deviceToKalib() {
+        String device = android.os.Build.MODEL;
+        logi(device);
+        logi(String.valueOf(device.equals("Pixel 4")));
+        logi(deviceToKalibMap.getOrDefault(device, "no device info, use default value"));
+        return deviceToKalibMap.getOrDefault(device, "737.037,699.167,340.565,218.486");
+    }
+
+    private static void logi(String str){
+        if(enableLog){
+            Log.i("tag", str);
+        }
+    }
+
     public static Mat imageToMat(Image image) {
         ByteBuffer buffer;
         int rowStride;

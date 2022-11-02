@@ -191,10 +191,10 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
     private float view_x, view_y, view_z;
     private boolean need_relocalize = false;
     private boolean planeVisible = false;
-    private float andyScale = 0.4f;
-    private String KalibInString = "737.037,699.167,340.565,218.486";
+    private float andyScale = 0.3f;
 
-
+    // private String KalibInString = "737.037,699.167,340.565,218.486";
+    private static String KalibInString = MyUtils.deviceToKalib();
 
     private PointerDrawable pointer = new PointerDrawable();
 
