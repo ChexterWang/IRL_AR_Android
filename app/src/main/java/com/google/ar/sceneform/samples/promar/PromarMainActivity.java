@@ -651,12 +651,14 @@ public class PromarMainActivity extends AppCompatActivity implements SensorEvent
     @RequiresApi(api = Build.VERSION_CODES.KITKAT)
 
     boolean has_subscribed = false;
-    void web_sock_send(final String encoded_img)
+    void web_sock_send(final String enc_img)
     {
         new Thread(new Runnable() {
             @RequiresApi(api = Build.VERSION_CODES.KITKAT)
             @Override
             public void run() {
+                // String encoded_img = enc_img.replace("\n", "").replace("\r", "");
+                String encoded_img = enc_img.replaceAll("(\\r|\\n|\\r\\n)+", "");
                 JSONObject obj = new JSONObject();
                 JSONObject obj1 = new JSONObject();
                 String data_header;

@@ -36,9 +36,9 @@ public class MyUtils {
         // {"MODEL", "fx,fy,cx,cy"}
         // cx, cy means principal point which should be ideally the center of the image.
         // Thus, it should be factored by image size(640, 480)
-        tmpMap.put("Pixel 4", "737.037,699.167,340.565,218.486");
-        tmpMap.put("Pixel 6", "472.373,470.638,320.901,237.168");
-        tmpMap.put("J9210", "515.346,687.030,325.055,239.317");
+        tmpMap.put("Pixel 4", "737.037+699.167+340.565+218.486");
+        tmpMap.put("Pixel 6", "472.373+470.638+320.901+237.168");
+        tmpMap.put("J9210", "515.346+687.030+325.055+239.317");
         deviceToKalibMap = Collections.unmodifiableMap(tmpMap);
     }
 
