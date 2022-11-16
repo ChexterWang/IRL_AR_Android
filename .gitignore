@@ -11,3 +11,7 @@ local.properties
 #
 # # OS configurations.
 .DS_Store
+
+openCVLibrary331dev/
+*sfa
+*sfb
